@@ -12,6 +12,7 @@ PluginComponent {
     property int trashFileCount: 0
     property bool isEmpty: trashFileCount === 0
     property string trashDir: Quickshell.env("HOME") + "/.local/share/Trash/files"
+    property var trashDirs: [Quickshell.env("HOME") + "/.local/share/Trash/files"]
     property string imageBase: Qt.resolvedUrl("./images/")
 
     // 多语言翻译
@@ -42,7 +43,28 @@ PluginComponent {
             root.currentLang = "zh"
         }
         root.loadSettings()
+        root.initTrashDirs()
         root.updateTrashCount()
+    }
+
+    // 初始化所有磁盘的回收站目录
+    function initTrashDirs() {
+        var mountCmd = "findmnt -rn -o TARGET 2>/dev/null | while read mount; do if [ -d \"$mount/.Trash-$UID/files\" ]; then echo \"$mount/.Trash-$UID/files\"; fi; done"
+        Proc.runCommand(null, ["sh", "-c", mountCmd], function(output, exitCode) {
+            if (exitCode === 0 && output) {
+                var dirs = [Quickshell.env("HOME") + "/.local/share/Trash/files"]
+                var lines = output.trim().split("\n")
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim()
+                    if (line && dirs.indexOf(line) === -1) {
+                        dirs.push(line)
+                    }
+                }
+                root.trashDirs = dirs
+                // 重新统计
+                root.updateTrashCount()
+            }
+        }, 0)
     }
 
     function tr(text) {
@@ -56,20 +78,31 @@ PluginComponent {
     property bool autoCleanEnabled: false
     property int autoCleanDays: 7
 
-    // 更新回收站文件数量
+    // 更新回收站文件数量（统计所有磁盘）
     function updateTrashCount() {
-        Proc.runCommand(null, ["sh", "-c", "ls -A '" + root.trashDir + "' 2>/dev/null | wc -l"], function(output, exitCode) {
-            if (exitCode === 0 && output) {
-                var count = parseInt(output.trim()) || 0
-                root.trashFileCount = count
-
-                if (root.autoCleanEnabled) {
-                    performAutoClean()
-                }
-            } else {
-                root.trashFileCount = 0
-            }
-        }, 0)
+        var totalCount = 0
+        var checkedCount = 0
+        
+        for (var i = 0; i < root.trashDirs.length; i++) {
+            (function(trashDir) {
+                Proc.runCommand(null, ["sh", "-c", "ls -1 '" + trashDir + "' 2>/dev/null | wc -l"], function(output, exitCode) {
+                    if (exitCode === 0 && output) {
+                        var count = parseInt(output.trim()) || 0
+                        totalCount += count
+                    }
+                    checkedCount++
+                    
+                    // 所有目录检查完成后更新总数
+                    if (checkedCount === root.trashDirs.length) {
+                        root.trashFileCount = totalCount
+                        
+                        if (root.autoCleanEnabled && totalCount > 0) {
+                            performAutoClean()
+                        }
+                    }
+                }, 0)
+            })(root.trashDirs[i])
+        }
     }
 
     // 加载设置
@@ -87,34 +120,39 @@ PluginComponent {
         }
     }
 
-    // 执行自动清理
+    // 执行自动清理（所有磁盘）
     function performAutoClean() {
         if (!root.autoCleanEnabled || root.trashFileCount === 0) return
 
-        var cleanCmd =
-            "infoDir='" + root.trashDir.replace('/files', '/info') + "'; " +
-            "filesDir='" + root.trashDir + "'; " +
-            "now=$(date +%s); " +
-            "days=" + root.autoCleanDays + "; " +
-            "for infoFile in \"$infoDir\"/*.trashinfo; do " +
-            "  [ -f \"$infoFile\" ] || continue; " +
-            "  deletionDate=$(grep '^DeletionDate=' \"$infoFile\" | cut -d'=' -f2); " +
-            "  [ -z \"$deletionDate\" ] && continue; " +
-            "  deletionEpoch=$(date -d \"${deletionDate/T/ }\" +%s 2>/dev/null); " +
-            "  [ -z \"$deletionEpoch\" ] && continue; " +
-            "  ageDays=$(( (now - deletionEpoch) / 86400 )); " +
-            "  if [ \"$ageDays\" -ge \"$days\" ]; then " +
-            "    fileName=$(basename \"$infoFile\" .trashinfo); " +
-            "    rm -rf \"$filesDir/$fileName\" 2>/dev/null; " +
-            "    rm -f \"$infoFile\" 2>/dev/null; " +
-            "  fi; " +
-            "done"
+        for (var i = 0; i < root.trashDirs.length; i++) {
+            (function(filesDir) {
+                var infoDir = filesDir.replace('/files', '/info')
+                var cleanCmd =
+                    "infoDir='" + infoDir + "'; " +
+                    "filesDir='" + filesDir + "'; " +
+                    "now=$(date +%s); " +
+                    "days=" + root.autoCleanDays + "; " +
+                    "for infoFile in \"$infoDir\"/*.trashinfo; do " +
+                    "  [ -f \"$infoFile\" ] || continue; " +
+                    "  deletionDate=$(grep '^DeletionDate=' \"$infoFile\" | cut -d'=' -f2); " +
+                    "  [ -z \"$deletionDate\" ] && continue; " +
+                    "  deletionEpoch=$(date -d \"${deletionDate/T/ }\" +%s 2>/dev/null); " +
+                    "  [ -z \"$deletionEpoch\" ] && continue; " +
+                    "  ageDays=$(( (now - deletionEpoch) / 86400 )); " +
+                    "  if [ \"$ageDays\" -ge \"$days\" ]; then " +
+                    "    fileName=$(basename \"$infoFile\" .trashinfo); " +
+                    "    rm -rf \"$filesDir/$fileName\" 2>/dev/null; " +
+                    "    rm -f \"$infoFile\" 2>/dev/null; " +
+                    "  fi; " +
+                    "done"
 
-        Proc.runCommand(null, ["sh", "-c", cleanCmd], function(output, exitCode) {
-            if (exitCode === 0) {
-                root.updateTrashCount()
-            }
-        }, 10000)
+                Proc.runCommand(null, ["sh", "-c", cleanCmd], function(output, exitCode) {
+                    if (exitCode === 0) {
+                        root.updateTrashCount()
+                    }
+                }, 10000)
+            })(root.trashDirs[i])
+        }
     }
 
     // 打开回收站
@@ -122,16 +160,25 @@ PluginComponent {
         Quickshell.execDetached(["thunar", "trash://"])
     }
 
-    // 清空回收站
+    // 清空回收站（所有磁盘）
     function emptyTrash() {
         // 立即更新 UI
         root.trashFileCount = 0
         if (root.closePopout) root.closePopout()
 
-        // 后台执行删除，使用 I18n 发送通知
+        // 后台执行删除，删除所有磁盘的 files 和 info 目录下的所有文件和文件夹
         var notifyTitle = root.tr("Trash Emptied")
         var notifyBody = root.tr("All files in the trash have been permanently deleted.")
-        Proc.runCommand(null, ["sh", "-c", "rm -rf '" + root.trashDir + "'/* '" + root.trashDir + "/'.* 2>/dev/null || true; notify-send '" + notifyTitle + "' '" + notifyBody + "' --icon=user-trash-full --app-name=DankMaterialShell"], function(output, exitCode) {
+        
+        var cleanCmd = ""
+        for (var i = 0; i < root.trashDirs.length; i++) {
+            var filesDir = root.trashDirs[i]
+            var infoDir = filesDir.replace('/files', '/info')
+            cleanCmd += "rm -rf '" + filesDir + "'/* 2>/dev/null; rm -rf '" + infoDir + "'/* 2>/dev/null; "
+        }
+        cleanCmd += "notify-send '" + notifyTitle + "' '" + notifyBody + "' --icon=user-trash-full --app-name=DankMaterialShell"
+        
+        Proc.runCommand(null, ["sh", "-c", cleanCmd], function(output, exitCode) {
             // 删除完成后不需要额外操作，通知已由命令发送
         }, 0)
     }
