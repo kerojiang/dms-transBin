@@ -1,0 +1,12 @@
+{
+    "id": "trashBin",
+    "name": "回收站",
+    "description": "显示回收站状态和文件数量的小部件",
+    "version": "1.3.0",
+    "author": "Test",
+    "icon": "delete",
+    "capabilities": ["dankbar-widget"],
+    "component": "./trashBin.qml",
+    "settings": "./trashBinSettings.qml",
+    "permissions": ["settings_read", "settings_write", "process", "network"]
+}

@@ -1,0 +1,38 @@
+{
+    "zh_CN": {
+        "Trash Emptied": "回收站已清空",
+        "All files in the trash have been permanently deleted.": "回收站中的所有文件已被永久删除。",
+        "Trash Auto-Clean Settings": "回收站自动清理设置",
+        "Enable Auto-Clean": "启用自动清理",
+        "Clean-up Days": "清理天数",
+        "Delete files older than specified days": "清理超过指定天数的文件",
+        "Empty Trash": "清空回收站",
+        "Note: Auto-clean checks and deletes files older than the specified days each time the trash status is updated.": "说明：自动清理会在每次回收站状态更新时检查并清理超过指定天数的文件。",
+        "1 day": "1天",
+        "3 days": "3天",
+        "7 days": "7天",
+        "15 days": "15天",
+        " days": "天",
+        "Configure rules for automatically cleaning up old files in the trash.": "配置自动清理回收站中旧文件的规则",
+        "Automatically clean up old files in the trash on a regular basis.": "定期自动清理回收站中的旧文件",
+        "Delete files older than the specified number of days.": "清理超过指定天数的文件"
+    },
+    "zh": {
+        "Trash Emptied": "回收站已清空",
+        "All files in the trash have been permanently deleted.": "回收站中的所有文件已被永久删除。",
+        "Trash Auto-Clean Settings": "回收站自动清理设置",
+        "Enable Auto-Clean": "启用自动清理",
+        "Clean-up Days": "清理天数",
+        "Delete files older than specified days": "清理超过指定天数的文件",
+        "Empty Trash": "清空回收站",
+        "Note: Auto-clean checks and deletes files older than the specified days each time the trash status is updated.": "说明：自动清理会在每次回收站状态更新时检查并清理超过指定天数的文件。",
+        "1 day": "1天",
+        "3 days": "3天",
+        "7 days": "7天",
+        "15 days": "15天",
+        " days": "天",
+        "Configure rules for automatically cleaning up old files in the trash.": "配置自动清理回收站中旧文件的规则",
+        "Automatically clean up old files in the trash on a regular basis.": "定期自动清理回收站中的旧文件",
+        "Delete files older than the specified number of days.": "清理超过指定天数的文件"
+    }
+}
