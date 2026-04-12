@@ -2,6 +2,10 @@
 
 Monitor and manage your system trash directly from your status bar.
 
+
+
+<img width="392" height="426" alt="3" src="https://github.com/user-attachments/assets/b06f39ed-669f-4505-8c91-ec49f7e658d1" />
+
 ## Features
 
 - **Real-time Monitoring**: Poll-based updates for instant trash status changes.
