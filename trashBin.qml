@@ -150,7 +150,9 @@ PluginComponent {
         for (var i = 0; i < root.trashDirs.length; i++) {
             var trashDir = root.trashDirs[i]
             var infoDir = trashDir.replace('/files', '/info')
-            cleanCmd += "rm -rf '" + trashDir + "'/* 2>/dev/null; rm -rf '" + infoDir + "'/* 2>/dev/null; "
+            // 使用 find 命令删除所有文件（包括隐藏文件），通配符 * 不匹配 . 开头的文件
+            cleanCmd += "find '" + trashDir + "' -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; "
+            cleanCmd += "find '" + infoDir + "' -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; "
         }
         cleanCmd += "notify-send '" + notifyTitle + "' '" + notifyBody + "' --icon=user-trash-full --app-name=DankMaterialShell"
 
@@ -179,13 +181,13 @@ PluginComponent {
         if (root.currentCleanIndex < root.trashDirs.length) {
             var filesDir = root.trashDirs[root.currentCleanIndex]
             var infoDir = filesDir.replace('/files', '/info')
+            // 使用 find 命令查找所有 .trashinfo 文件（包括隐藏文件）
             var cleanCmd =
                 "infoDir='" + infoDir + "'; " +
                 "filesDir='" + filesDir + "'; " +
                 "now=$(date +%s); " +
                 "days=" + root.autoCleanDays + "; " +
-                "for infoFile in \"$infoDir\"/*.trashinfo; do " +
-                "  [ -f \"$infoFile\" ] || continue; " +
+                "find \"$infoDir\" -mindepth 1 -maxdepth 1 -name '*.trashinfo' -print0 2>/dev/null | while IFS= read -r -d '' infoFile; do " +
                 "  deletionDate=$(grep '^DeletionDate=' \"$infoFile\" | cut -d'=' -f2); " +
                 "  [ -z \"$deletionDate\" ] && continue; " +
                 "  deletionEpoch=$(date -d \"${deletionDate/T/ }\" +%s 2>/dev/null); " +
