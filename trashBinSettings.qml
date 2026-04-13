@@ -68,10 +68,11 @@ PluginSettings {
 
     // 清理天数选项
     SelectionSetting {
+        id: cleanDaysSetting
         settingKey: "autoCleanDays"
         label: root.tr("Clean-up Days")
         description: root.tr("Delete files older than the specified number of days.")
-        defaultValue: "7"
+        defaultValue: root.tr("7 days")
         options: [root.tr("1 day"), root.tr("3 days"), root.tr("7 days"), root.tr("15 days")]
     }
 
