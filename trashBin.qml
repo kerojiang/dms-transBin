@@ -34,13 +34,12 @@ PluginComponent {
     })
     property string currentLang: "en"
 
-    // 自动清理设置
-    property bool autoCleanEnabled: false
-    property int autoCleanDays: 7
+    // 从 pluginData 读取设置（框架自动绑定）
+    property bool autoCleanEnabled: pluginData.autoCleanEnabled ?? true
+    property int autoCleanDays: parseInt(pluginData.autoCleanDays) ?? 1
 
     // 多磁盘回收站目录
     property var trashDirs: [Quickshell.env("HOME") + "/.local/share/Trash/files"]
-    property int currentCountIndex: 0
     property int tempTrashCount: 0
 
     Component.onCompleted: {
@@ -50,7 +49,6 @@ PluginComponent {
         if (lang === "zh") {
             root.currentLang = "zh"
         }
-        root.loadSettings()
         // 延迟初始化多磁盘
         Qt.callLater(root.initMultiDiskTrash)
     }
@@ -81,37 +79,49 @@ PluginComponent {
         }
 
         onExited: {
-            // 初始化完成，开始统计
+            // 初始化完成，开始并行统计
             if (root.trashDirs.length > 0) {
-                countProcess.command = ["sh", "-c", "find '" + root.trashDirs[0] + "' -mindepth 1 -maxdepth 1 2>/dev/null | wc -l"]
-                root.currentCountIndex = 0
-                root.tempTrashCount = 0
-                countProcess.running = true
+                root.startCountAllDisks()
             }
         }
     }
 
-    // 统计回收站文件数量（多磁盘串行统计）
-    Process {
-        id: countProcess
-        running: false
+    // 统计回收站文件数量（多磁盘并行统计）
+    property int completedCountIndex: 0
 
-        stdout: SplitParser {
-            onRead: function(line) {
-                var count = parseInt(line.trim()) || 0
-                root.tempTrashCount += count
-            }
+    function startCountAllDisks() {
+        root.completedCountIndex = 0
+        root.tempTrashCount = 0
+        for (var i = 0; i < root.trashDirs.length; i++) {
+            var dir = root.trashDirs[i]
+            var proc = countProcessComponent.createObject(root, {
+                diskIndex: i,
+                command: ["sh", "-c", "find '" + dir + "' -mindepth 1 -maxdepth 1 2>/dev/null | wc -l"]
+            })
+            proc.running = true
         }
+    }
 
-        onExited: {
-            // 当前目录统计完成
-            root.currentCountIndex++
-            if (root.currentCountIndex < root.trashDirs.length) {
-                var nextDir = root.trashDirs[root.currentCountIndex]
-                countProcess.command = ["sh", "-c", "find '" + nextDir + "' -mindepth 1 -maxdepth 1 2>/dev/null | wc -l"]
-                countProcess.running = true
-            } else {
-                root.trashFileCount = root.tempTrashCount
+    Component {
+        id: countProcessComponent
+
+        Process {
+            property int diskIndex: 0
+            running: false
+
+            stdout: SplitParser {
+                onRead: function(line) {
+                    var count = parseInt(line.trim()) || 0
+                    root.tempTrashCount += count
+                }
+            }
+
+            onExited: function(exitCode) {
+                root.completedCountIndex++
+                if (root.completedCountIndex >= root.trashDirs.length) {
+                    root.trashFileCount = root.tempTrashCount
+                }
+                destroy()
             }
         }
     }
@@ -121,21 +131,6 @@ PluginComponent {
         var dict = root.translations[root.currentLang]
         if (!dict) return text
         return dict[text] || text
-    }
-
-    // 加载设置
-    function loadSettings() {
-        if (typeof PluginService !== "undefined") {
-            root.autoCleanEnabled = PluginService.loadPluginData("trashBin", "autoCleanEnabled", false)
-            root.autoCleanDays = PluginService.loadPluginData("trashBin", "autoCleanDays", 7)
-        }
-    }
-
-    // 保存设置
-    function saveSetting(key, value) {
-        if (typeof PluginService !== "undefined") {
-            PluginService.savePluginData("trashBin", key, value)
-        }
     }
 
     // 打开回收站
@@ -175,7 +170,7 @@ PluginComponent {
     property int currentCleanIndex: 0
 
     function performAutoClean() {
-        if (!root.autoCleanEnabled || root.trashFileCount === 0) return
+        if (!root.autoCleanEnabled) return
         root.currentCleanIndex = 0
         root.startNextCleanProcess()
     }
@@ -240,11 +235,8 @@ PluginComponent {
         repeat: true
         running: true
         onTriggered: {
-            if (!countProcess.running && !initDirsProcess.running && root.trashDirs.length > 0) {
-                countProcess.command = ["sh", "-c", "find '" + root.trashDirs[0] + "' -mindepth 1 -maxdepth 1 2>/dev/null | wc -l"]
-                root.currentCountIndex = 0
-                root.tempTrashCount = 0
-                countProcess.running = true
+            if (!initDirsProcess.running && root.trashDirs.length > 0) {
+                root.startCountAllDisks()
             }
         }
     }
@@ -314,7 +306,9 @@ PluginComponent {
                         m[root.tr("7 days")] = 7
                         m[root.tr("15 days")] = 15
                         root.autoCleanDays = m[newValue] || 7
-                        root.saveSetting("autoCleanDays", root.autoCleanDays)
+                        if (pluginService) {
+                            pluginService.savePluginData(pluginId, "autoCleanDays", root.autoCleanDays)
+                        }
                     }
                 }
 
@@ -345,7 +339,9 @@ PluginComponent {
                         checked: root.autoCleanEnabled
                         onToggled: function(isChecked) {
                             root.autoCleanEnabled = isChecked
-                            root.saveSetting("autoCleanEnabled", isChecked)
+                            if (pluginService) {
+                                pluginService.savePluginData(pluginId, "autoCleanEnabled", isChecked)
+                            }
                         }
                     }
                 }
