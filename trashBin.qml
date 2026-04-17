@@ -38,90 +38,29 @@ PluginComponent {
     property bool autoCleanEnabled: pluginData.autoCleanEnabled ?? true
     property int autoCleanDays: parseInt(pluginData.autoCleanDays) ?? 1
 
-    // 多磁盘回收站目录
-    property var trashDirs: [Quickshell.env("HOME") + "/.local/share/Trash/files"]
     property int tempTrashCount: 0
 
     Component.onCompleted: {
-        // 获取系统语言
         var sysLocale = Qt.locale().name
         var lang = sysLocale.split("_")[0]
         if (lang === "zh") {
             root.currentLang = "zh"
         }
-        // 延迟初始化多磁盘
-        Qt.callLater(root.initMultiDiskTrash)
+        Qt.callLater(root.updateTrashCount)
     }
 
-    // 初始化多磁盘回收站目录
-    function initMultiDiskTrash() {
-        initDirsProcess.running = true
+    function updateTrashCount() {
+        countProcess.running = true
     }
 
-    // 查找所有磁盘的回收站目录
     Process {
-        id: initDirsProcess
-        command: ["sh", "-c", "findmnt -rn -o TARGET 2>/dev/null | while read mount; do if [ -d \"$mount/.Trash-$UID/files\" ]; then echo \"$mount/.Trash-$UID/files\"; fi; done"]
+        id: countProcess
+        command: ["sh", "-c", "gio trash --list 2>/dev/null | wc -l"]
         running: false
 
         stdout: SplitParser {
             onRead: function(line) {
-                var dirs = [Quickshell.env("HOME") + "/.local/share/Trash/files"]
-                var lines = line.trim().split("\n")
-                for (var i = 0; i < lines.length; i++) {
-                    var dirPath = lines[i].trim()
-                    if (dirPath && dirs.indexOf(dirPath) === -1) {
-                        dirs.push(dirPath)
-                    }
-                }
-                root.trashDirs = dirs
-            }
-        }
-
-        onExited: {
-            // 初始化完成，开始并行统计
-            if (root.trashDirs.length > 0) {
-                root.startCountAllDisks()
-            }
-        }
-    }
-
-    // 统计回收站文件数量（多磁盘并行统计）
-    property int completedCountIndex: 0
-
-    function startCountAllDisks() {
-        root.completedCountIndex = 0
-        root.tempTrashCount = 0
-        for (var i = 0; i < root.trashDirs.length; i++) {
-            var dir = root.trashDirs[i]
-            var proc = countProcessComponent.createObject(root, {
-                diskIndex: i,
-                command: ["sh", "-c", "find '" + dir + "' -mindepth 1 -maxdepth 1 2>/dev/null | wc -l"]
-            })
-            proc.running = true
-        }
-    }
-
-    Component {
-        id: countProcessComponent
-
-        Process {
-            property int diskIndex: 0
-            running: false
-
-            stdout: SplitParser {
-                onRead: function(line) {
-                    var count = parseInt(line.trim()) || 0
-                    root.tempTrashCount += count
-                }
-            }
-
-            onExited: function(exitCode) {
-                root.completedCountIndex++
-                if (root.completedCountIndex >= root.trashDirs.length) {
-                    root.trashFileCount = root.tempTrashCount
-                }
-                destroy()
+                root.trashFileCount = parseInt(line.trim()) || 0
             }
         }
     }
@@ -138,7 +77,6 @@ PluginComponent {
         Quickshell.execDetached(["thunar", "trash://"])
     }
 
-    // 清空回收站（支持多磁盘）
     function emptyTrash() {
         root.trashFileCount = 0
         if (root.closePopout) root.closePopout()
@@ -146,78 +84,49 @@ PluginComponent {
         var notifyTitle = root.tr("Trash Emptied")
         var notifyBody = root.tr("All files in the trash have been permanently deleted.")
 
-        var cleanCmd = ""
-        for (var i = 0; i < root.trashDirs.length; i++) {
-            var trashDir = root.trashDirs[i]
-            var infoDir = trashDir.replace('/files', '/info')
-            // 使用 find 命令删除所有文件（包括隐藏文件），通配符 * 不匹配 . 开头的文件
-            cleanCmd += "find '" + trashDir + "' -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; "
-            cleanCmd += "find '" + infoDir + "' -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; "
-        }
-        cleanCmd += "notify-send '" + notifyTitle + "' '" + notifyBody + "' --icon=user-trash-full --app-name=DankMaterialShell"
-
-        if (!emptyProcess.running) {
-            emptyProcess.command = ["sh", "-c", cleanCmd]
-            emptyProcess.running = true
-        }
+        emptyProcess.command = ["sh", "-c", "gio trash --empty 2>/dev/null && notify-send '" + notifyTitle + "' '" + notifyBody + "' --icon=user-trash-full --app-name=DankMaterialShell"]
+        emptyProcess.running = true
     }
 
-    // 清空回收站的 Process
     Process {
         id: emptyProcess
         running: false
     }
 
-    // 自动清理 Process（按磁盘串行执行）
-    property int currentCleanIndex: 0
-
     function performAutoClean() {
         if (!root.autoCleanEnabled) return
-        root.currentCleanIndex = 0
-        root.startNextCleanProcess()
-    }
-
-    function startNextCleanProcess() {
-        if (root.currentCleanIndex < root.trashDirs.length) {
-            var filesDir = root.trashDirs[root.currentCleanIndex]
-            var infoDir = filesDir.replace('/files', '/info')
-            // 使用 find 命令查找所有 .trashinfo 文件（包括隐藏文件）
-            var cleanCmd =
-                "infoDir='" + infoDir + "'; " +
-                "filesDir='" + filesDir + "'; " +
-                "now=$(date +%s); " +
-                "days=" + root.autoCleanDays + "; " +
-                "find \"$infoDir\" -mindepth 1 -maxdepth 1 -name '*.trashinfo' -print0 2>/dev/null | while IFS= read -r -d '' infoFile; do " +
-                "  deletionDate=$(grep '^DeletionDate=' \"$infoFile\" | cut -d'=' -f2); " +
-                "  [ -z \"$deletionDate\" ] && continue; " +
-                "  deletionEpoch=$(date -d \"${deletionDate/T/ }\" +%s 2>/dev/null); " +
-                "  [ -z \"$deletionEpoch\" ] && continue; " +
-                "  ageDays=$(( (now - deletionEpoch) / 86400 )); " +
-                "  if [ \"$ageDays\" -ge \"$days\" ]; then " +
-                "    fileName=$(basename \"$infoFile\" .trashinfo); " +
-                "    rm -rf \"$filesDir/$fileName\" 2>/dev/null; " +
-                "    rm -f \"$infoFile\" 2>/dev/null; " +
-                "  fi; " +
-                "done"
-
-            cleanProcess.command = ["sh", "-c", cleanCmd]
-            cleanProcess.running = true
-        }
+        var days = root.autoCleanDays
+        var homeTrash = Quickshell.env("HOME") + "/.local/share/Trash"
+        cleanProcess.command = ["sh", "-c",
+            "now=$(date +%s); " +
+            "days=" + days + "; " +
+            "for trashDir in ~/.local/share/Trash/files /run/media/*/.Trash-$(id -u)/files; do " +
+            "  [ -d \"$trashDir\" ] || continue; " +
+            "  infoDir=$(echo \"$trashDir\" | sed 's|/files|/info|'); " +
+            "  [ -d \"$infoDir\" ] || continue; " +
+            "  find \"$infoDir\" -mindepth 1 -maxdepth 1 -name '*.trashinfo' -print0 2>/dev/null | " +
+            "  while IFS= read -r -d '' infoFile; do " +
+            "    deletionDate=$(grep '^DeletionDate=' \"$infoFile\" | cut -d'=' -f2); " +
+            "    [ -z \"$deletionDate\" ] && continue; " +
+            "    deletionEpoch=$(date -d \"${deletionDate/T/ }\" +%s 2>/dev/null); " +
+            "    [ -z \"$deletionEpoch\" ] && continue; " +
+            "    ageDays=$(( (now - deletionEpoch) / 86400 )); " +
+            "    if [ \"$ageDays\" -ge \"$days\" ]; then " +
+            "      fileName=$(basename \"$infoFile\" .trashinfo); " +
+            "      rm -rf \"$trashDir/$fileName\" 2>/dev/null; " +
+            "      rm -f \"$infoFile\" 2>/dev/null; " +
+            "    fi; " +
+            "  done; " +
+            "done"
+        ]
+        cleanProcess.running = true
     }
 
     Process {
         id: cleanProcess
         running: false
-
-        onExited: {
-            root.currentCleanIndex++
-            if (root.currentCleanIndex < root.trashDirs.length) {
-                root.startNextCleanProcess()
-            }
-        }
     }
 
-    // 自动清理定时器（每1分钟）
     Timer {
         id: autoCleanTimer
         interval: 60000
@@ -230,27 +139,22 @@ PluginComponent {
         }
     }
 
-    // 定时轮询
     Timer {
         id: pollingTimer
         interval: 5000
         repeat: true
         running: true
-        onTriggered: {
-            if (!initDirsProcess.running && root.trashDirs.length > 0) {
-                root.startCountAllDisks()
-            }
-        }
+        onTriggered: root.updateTrashCount()
     }
 
     // 水平 pill
     horizontalBarPill: Component {
         Image {
             source: root.trashFileCount === 0 ? root.imageBase + "bin-empty.png" : root.imageBase + "bin-full.png"
-            sourceSize.width: root.iconSize
-            sourceSize.height: root.iconSize
-            width: root.iconSize
-            height: root.iconSize
+            sourceSize.width: Theme.iconSize
+            sourceSize.height: Theme.iconSize
+            width: Theme.iconSize
+            height: Theme.iconSize
             fillMode: Image.PreserveAspectFit
             smooth: true
         }
@@ -260,10 +164,10 @@ PluginComponent {
     verticalBarPill: Component {
         Image {
             source: root.trashFileCount === 0 ? root.imageBase + "bin-empty.png" : root.imageBase + "bin-full.png"
-            sourceSize.width: root.iconSize
-            sourceSize.height: root.iconSize
-            width: root.iconSize
-            height: root.iconSize
+            sourceSize.width: Theme.iconSize
+            sourceSize.height: Theme.iconSize
+            width: Theme.iconSize
+            height: Theme.iconSize
             fillMode: Image.PreserveAspectFit
             smooth: true
         }
