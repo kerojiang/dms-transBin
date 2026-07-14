@@ -194,9 +194,9 @@ PluginComponent {
 
     property int lastFileCount: -1
 
-    // 播放音效
+    // 播放音效（文件不存在则跳过）
     function playSound(soundFile) {
-        Quickshell.execDetached(["paplay", soundFile])
+        Quickshell.execDetached(["sh", "-c", "[ -f \"" + soundFile + "\" ] && paplay \"" + soundFile + "\""])
     }
 
     // 轮询回收站目录变化（每 5 秒）
