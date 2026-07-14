@@ -16,7 +16,7 @@ PluginSettings {
             "Automatically clean up old files in the trash on a regular basis.": "定期自动清理回收站中的旧文件",
             "Clean-up Days": "清理天数",
             "Delete files older than the specified number of days.": "清理超过指定天数的文件",
-            "Note: Auto-clean checks and deletes files older than the specified days every 2 seconds.": "说明：自动清理会每2秒定时检查并清理超过指定天数的文件。",
+            "Note: Auto-clean checks and deletes files older than the specified days every hour.": "说明：自动清理会每小时检查并清理超过指定天数的文件。",
             "1 day": "1天",
             "3 days": "3天",
             "7 days": "7天",
@@ -72,14 +72,19 @@ PluginSettings {
         settingKey: "autoCleanDays"
         label: root.tr("Clean-up Days")
         description: root.tr("Delete files older than the specified number of days.")
-        defaultValue: root.tr("7 days")
-        options: [root.tr("1 day"), root.tr("3 days"), root.tr("7 days"), root.tr("15 days")]
+        defaultValue: 7
+        options: [
+            { label: root.tr("1 day"), value: 1 },
+            { label: root.tr("3 days"), value: 3 },
+            { label: root.tr("7 days"), value: 7 },
+            { label: root.tr("15 days"), value: 15 }
+        ]
     }
 
     // 说明信息
     StyledText {
         width: parent.width
-        text: root.tr("Note: Auto-clean checks and deletes files older than the specified days each time the trash status is updated.")
+        text: root.tr("Note: Auto-clean checks and deletes files older than the specified days every hour.")
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap

@@ -1,26 +1,26 @@
-# 回收站 (Trash Bin)
+# Trash Bin
 
 Monitor and manage your system trash directly from your status bar.
 
-
-
-<img width="392" height="426" alt="3" src="https://github.com/user-attachments/assets/b06f39ed-669f-4505-8c91-ec49f7e658d1" />
+<img width="392" height="426" alt="Screenshot" src="https://github.com/user-attachments/assets/b06f39ed-669f-4505-8c91-ec49f7e658d1" />
 
 ## Features
 
-- **Real-time Monitoring**: Poll-based updates for instant trash status changes.
-- **Trash Status Display**: Shows whether the trash is empty or contains files with dynamic icons.
-- **Quick Access**: Left-click to open the trash in your file manager (Thunar).
-- **Empty Trash**: One-click button to permanently delete all files in the trash.
-- **Auto-Clean**: Configure automatic cleanup rules to delete files older than a specified number of days.
-- **Editing Mode**: Customize clean-up intervals (1, 3, 7, or 15 days) via settings popout.
-- **Multi-language Support**: Built-in Chinese (zh) and English (en) translations.
+- **Real-time Monitoring**: Poll-based updates every 5 seconds for instant trash status detection.
+- **Trash Status Display**: Dynamic icon colors (primary when full, outline when empty).
+- **Sound Feedback**: Plays a sound effect when a file is moved to the trash.
+- **Quick Access**: Left-click to open the trash in your file manager.
+- **Empty Trash**: One-click button to permanently delete all files.
+- **Auto-Clean**: Configurable automatic cleanup (hourly) — deletes files older than 1, 3, 7, or 15 days.
+- **External Drive Support**: Detects and manages trash directories on external mounts (`/mnt`, `/media`, `/run/media`).
+- **Multi-language Support**: English and Chinese (zh).
 
 ## Requirements
 
-- **System Package**: `thunar` (or another file manager supporting `trash://` protocol) for opening the trash.
-- **notify-send**: For desktop notifications when trash is emptied.
 - **DankMaterialShell**: The plugin runs within the DankMaterialShell environment.
+- **gio**: For trash operations (list, empty, open).
+- **paplay**: For sound playback (optional, part of PulseAudio).
+- **notify-send** or **dms notify**: For desktop notifications when trash is emptied.
 
 ## Configuration
 
@@ -33,21 +33,28 @@ Monitor and manage your system trash directly from your status bar.
 
 - **Left-click**: Open the trash in your file manager.
 - **Right-click**: Open the settings popout to configure auto-clean options and empty the trash.
-- **Status Bar Icon**: Dynamically changes between empty and full icons based on trash content.
+- **Status Bar Icon**: Changes color between empty (dimmed) and full (accent) states.
 
 ## Permissions
 
 - `settings_read` / `settings_write`: For storing auto-clean preferences.
 - `process`: For executing shell commands (trash count, auto-clean, empty trash).
-- `network`: Required by the plugin system.
 
 ## Technical Details
 
-- **Polling Interval**: 2 seconds for trash status updates.
+- **Polling Interval**: 5 seconds for trash status updates.
+- **Auto-Clean Interval**: Every hour, with `timeout` (300s) and `ionice` (idle) safeguards.
 - **Auto-Clean Mechanism**: Reads `.trashinfo` files, calculates age based on `DeletionDate`, and removes files older than the configured interval.
-- **Trash Path**: `~/.local/share/Trash/files` (FreeDesktop.org Trash specification).
+- **Trash Paths**: `~/.local/share/Trash` and external mount points (`.Trash-$UID`).
+- **Sound Files**: `~/.local/share/sounds/harmony2/stereo/file-trash.ogg` (deletion) and `trash-empty.ogg` (empty).
 
-## Feedback & Contributions
+## Changelog
 
-Suggestions for improvements and feature requests are always welcome.
-If you have ideas, encounter issues, or want to see new features, feel free to open an issue or submit a pull request.
+- **v1.3.1**: Fix auto-clean default inconsistency, add process onExited handlers, remove unnecessary permissions, clean up redundant code.
+- **v1.3.0**: Add auto-clean feature with configurable time options.
+- **v1.2.0**: Remove trash-cli dependency, use native Linux commands.
+- **v1.1.0**: Initial release.
+
+## License
+
+MIT License
