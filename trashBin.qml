@@ -10,7 +10,8 @@ import qs.Modules.Plugins
 PluginComponent {
     id: root
 
-    property int trashFileCount: 0
+    // 计数直接绑定 DMS TrashService（FolderListModel watcher + dms trash count，含外部 .Trash-$UID）
+    readonly property int trashFileCount: TrashService.count
 
     // 多语言翻译
     property var translations: ({
@@ -38,23 +39,6 @@ PluginComponent {
         ? pluginData.autoCleanDays
         : parseInt(pluginData.autoCleanDays) || 7
 
-    // 共享的回收站文件计数 shell 命令
-    function trashCountCommand() {
-        return [
-            "sh", "-c",
-            "{ " +
-            "  [ -d \"$HOME/.local/share/Trash/files\" ] && ls -1A \"$HOME/.local/share/Trash/files\" 2>/dev/null; " +
-            "  for mp in /home /mnt /media /run/media; do " +
-            "    [ -d \"$mp\" ] || continue; " +
-            "    find \"$mp\" -xdev -maxdepth 4 -type d -name \".Trash-$(id -u)\" -print0 2>/dev/null | " +
-            "    while IFS= read -r -d '' td; do " +
-            "      [ -d \"$td/files\" ] && ls -1A \"$td/files\" 2>/dev/null; " +
-            "    done; " +
-            "  done; " +
-            "} | wc -l"
-        ]
-    }
-
     Component.onCompleted: {
         console.info("[TrashBin] ===== Component.onCompleted =====")
         var sysLocale = Qt.locale().name
@@ -63,37 +47,8 @@ PluginComponent {
             root.currentLang = "zh"
         }
         console.info("[TrashBin] Locale:", sysLocale, "Lang:", root.currentLang)
-        Qt.callLater(root.updateTrashCount)
-    }
-
-    function updateTrashCount() {
-        console.info("[TrashBin] [UPDATE] ===== 开始更新计数 =====")
-        if (countProcess.running) {
-            console.info("[TrashBin] [UPDATE] countProcess 已在运行，跳过")
-            return
-        }
-        console.info("[TrashBin] [UPDATE] 启动 countProcess")
-        countProcess.running = true
-    }
-
-    Process {
-        id: countProcess
-        command: root.trashCountCommand()
-        running: false
-
-        stdout: SplitParser {
-            onRead: function(line) {
-                console.info("[TrashBin] [COUNT] 原始输出:", line)
-                var count = parseInt(line.trim()) || 0
-                console.info("[TrashBin] [COUNT] 解析后的计数:", count)
-                root.trashFileCount = count
-                root.lastFileCount = count
-            }
-        }
-
-        onExited: function(exitCode, exitStatus) {
-            console.info("[TrashBin] [COUNT] 进程退出，退出码:", exitCode, "状态:", exitStatus)
-        }
+        // 加载时校准计数（单次 dms trash count，覆盖外部 .Trash-$UID；主 trash 后续由 FolderListModel 事件驱动）
+        TrashService.refreshCount()
     }
 
     function tr(text) {
@@ -103,36 +58,56 @@ PluginComponent {
         return dict[text] || text
     }
 
-    // 打开回收站
+    // 打开回收站（复用 DMS TrashService：xdg-open/用户在设置中选择的文件管理器）
     function openTrash() {
-        Quickshell.execDetached(["sh", "-c", "gio open trash://"])
+        TrashService.openTrash()
     }
 
+    // 清空回收站（复用 DMS TrashService：dms trash empty，失败时由 service 弹出错误 Toast）
     function emptyTrash() {
-        if (emptyProcess.running) {
+        if (root.emptyingTrash) {
             console.info("[TrashBin] [EMPTY] 清空操作正在进行中，跳过")
             return
         }
+        if (root.trashFileCount === 0) return
         if (root.closePopout) root.closePopout()
 
-        var notifyTitle = root.tr("Trash Emptied")
-        var notifyBody = root.tr("All files in the trash have been permanently deleted.")
-
-        emptyProcess.command = ["sh", "-c", "gio trash --empty 2>/dev/null && dms notify \"" + notifyTitle + "\" \"" + notifyBody + "\" --icon=user-trash-full"]
-        emptyProcess.running = true
+        root.emptyingTrash = true
+        emptyConfirmTimer.restart()
+        TrashService.emptyTrash()
     }
 
-    Process {
-        id: emptyProcess
-        running: false
+    // 清空结果等待超时兜底：清空失败时复位标记（失败提示由 ToastService 负责）
+    Timer {
+        id: emptyConfirmTimer
+        interval: 15000
+        onTriggered: root.emptyingTrash = false
+    }
 
-        onExited: function(exitCode, exitStatus) {
-            if (exitCode === 0) {
-                root.trashFileCount = 0
+    // 监听 TrashService 计数变化：新增文件播放音效，清空成功后发通知并播放音效
+    Connections {
+        target: TrashService
+
+        function onCountChanged() {
+            var current = TrashService.count
+            console.info("[TrashBin] [COUNT] 计数更新:", current)
+            if (root.emptyingTrash && current === 0) {
+                root.emptyingTrash = false
+                emptyConfirmTimer.stop()
                 root.playSound(Quickshell.env("HOME") + "/.local/share/sounds/harmony2/stereo/trash-empty.ogg")
+                Quickshell.execDetached(["dms", "notify",
+                    root.tr("Trash Emptied"),
+                    root.tr("All files in the trash have been permanently deleted."),
+                    "--icon=user-trash-full"])
+            } else if (!root.emptyingTrash && root.lastFileCount !== -1 && current > root.lastFileCount) {
+                root.playSound(Quickshell.env("HOME") + "/.local/share/sounds/harmony2/stereo/file-trash.ogg")
             }
+            root.lastFileCount = current
         }
     }
+
+    // 清空回收站进行中标记
+    property bool emptyingTrash: false
 
     function performAutoClean() {
         if (!root.autoCleanEnabled) return
@@ -164,13 +139,13 @@ PluginComponent {
             "      rm -f \"$infoFile\" 2>/dev/null; " +
             "    fi; " +
             "  done; " +
-            "}; " +
-            "# Main trash " +
-            "clean_one_dir \"$HOME/.local/share/Trash\"; " +
-            "# External drives " +
+            "};\n" +
+            "# Main trash\n" +
+            "clean_one_dir \"$HOME/.local/share/Trash\";\n" +
+            "# External drives\n" +
             "for mp in /home /mnt /media /run/media; do " +
             "  [ -d \"$mp\" ] || continue; " +
-            "  find \"$mp\" -xdev -maxdepth 4 -type d -name \".Trash-$(id -u)\" -print0 2>/dev/null | " +
+            "  find \"$mp\" -maxdepth 4 -type d -name \".Trash-$(id -u)\" -print0 2>/dev/null | " +
             "  while IFS= read -r -d '' td; do " +
             "    clean_one_dir \"$td\"; " +
             "  done; " +
@@ -184,6 +159,8 @@ PluginComponent {
         running: false
 
         onExited: function(exitCode, exitStatus) {
+            // 自动清理可能只删除外部盘 .Trash-$UID 中的项目，主动刷新 TrashService 计数
+            TrashService.refreshCount()
             if (exitCode === 0) {
                 console.info("[TrashBin] [AUTOCLEAN] 自动清理完成")
             } else {
@@ -199,18 +176,6 @@ PluginComponent {
         Quickshell.execDetached(["sh", "-c", "[ -f \"" + soundFile + "\" ] && paplay \"" + soundFile + "\""])
     }
 
-    // 轮询回收站目录变化（每 5 秒）
-    Timer {
-        id: pollTimer
-        interval: 5000
-        repeat: true
-        running: true
-        onTriggered: {
-            if (pollProcess.running) return
-            pollProcess.running = true
-        }
-    }
-
     // 自动清理定时器（每小时）
     Timer {
         id: autoCleanTimer
@@ -220,39 +185,6 @@ PluginComponent {
         onTriggered: {
             console.info("[TrashBin] [AUTOCLEAN] 定时触发自动清理")
             root.performAutoClean()
-        }
-    }
-
-    Process {
-        id: pollProcess
-        command: root.trashCountCommand()
-        running: false
-
-        stdout: SplitParser {
-            onRead: function(line) {
-                var currentCount = parseInt(line.trim()) || 0
-                if (root.lastFileCount === -1) {
-                    root.lastFileCount = currentCount
-                    return
-                }
-                if (currentCount !== root.lastFileCount) {
-                    console.info("[TrashBin] [POLL] ===== 检测到文件数量变化 =====")
-                    console.info("[TrashBin] [POLL] 之前:", root.lastFileCount, "现在:", currentCount)
-
-                    if (currentCount > root.lastFileCount) {
-                        root.playSound(Quickshell.env("HOME") + "/.local/share/sounds/harmony2/stereo/file-trash.ogg")
-                    }
-
-                    root.trashFileCount = currentCount
-                    root.lastFileCount = currentCount
-                }
-            }
-        }
-
-        onExited: function(exitCode, exitStatus) {
-            if (exitCode !== 0) {
-                console.warn("[TrashBin] [POLL] 轮询进程异常退出，退出码:", exitCode)
-            }
         }
     }
 

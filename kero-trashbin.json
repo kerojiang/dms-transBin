@@ -6,7 +6,7 @@
     "repo": "https://github.com/kerojiang/dms-transBin",
     "author": "kerojiang",
     "description": "Monitor and manage your system trash directly from your status bar. Features real-time monitoring, quick access, empty trash button, and auto-clean configuration.",
-    "dependencies": [],
+    "dependencies": ["paplay"],
     "compositors": ["any"],
     "distro": ["any"],
     "screenshot": "https://raw.githubusercontent.com/kerojiang/dms-transBin/refs/heads/main/images/bin-full.png"
